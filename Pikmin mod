@@ -1,0 +1,561 @@
+// =====================================================
+// FULL PIKMIN PACK MOD FOR SANDBOXES.ONLINE
+// Pikmin Types + Throwing + Carrying + Onion Base + Boss
+// =====================================================
+
+// ------------------------------
+// GLOBAL SETTINGS
+// ------------------------------
+const THROW_FORCE = 0.35;
+const CARRY_DISTANCE = 0.8;
+const CARRY_SPEED = 0.03;
+
+// ------------------------------
+// GLOBAL: Find nearest Pikmin
+// ------------------------------
+function getNearestPikmin(world, player) {
+    const pikmin = world.getEntities().filter(e => e.id.startsWith("pikmin_"));
+    let nearest = null;
+    let dist = Infinity;
+
+    for (const p of pikmin) {
+        const d = p.distanceTo(player);
+        if (d < dist) {
+            dist = d;
+            nearest = p;
+        }
+    }
+    return nearest;
+}
+
+// ------------------------------
+// GLOBAL: Throw Pikmin (Key T)
+// ------------------------------
+export function onKeyPress(world, key) {
+    if (key !== "T") return;
+
+    const player = world.getPlayers()[0];
+    if (!player) return;
+
+    const pikmin = getNearestPikmin(world, player);
+    if (!pikmin) return;
+
+    const cursor = world.getCursorPosition();
+    const dir = {
+        x: cursor.x - pikmin.position.x,
+        y: cursor.y - pikmin.position.y
+    };
+
+    const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y);
+    dir.x /= len;
+    dir.y /= len;
+
+    pikmin.velocity.x += dir.x * THROW_FORCE;
+    pikmin.velocity.y += dir.y * THROW_FORCE;
+
+    pikmin.isThrown = true;
+    pikmin.throwTimer = 20;
+}
+
+// ------------------------------
+// GLOBAL: Carrying Objects
+// ------------------------------
+function handleCarrying(entity, world) {
+    if (!entity.carryTarget) return;
+
+    const target = entity.carryTarget;
+
+    // Move Pikmin toward object
+    const dx = target.position.x - entity.position.x;
+    const dy = target.position.y - entity.position.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist > CARRY_DISTANCE) {
+        entity.velocity.x += dx * CARRY_SPEED;
+        entity.velocity.y += dy * CARRY_SPEED;
+    } else {
+        // Pikmin lifts object
+        target.position.x = entity.position.x;
+        target.position.y = entity.position.y - 0.5;
+
+        // Move object toward Onion
+        const onion = world.getEntities().find(e => e.id === "pikmin_onion");
+        if (onion) {
+            const odx = onion.position.x - target.position.x;
+            const ody = onion.position.y - target.position.y;
+            target.velocity.x += odx * 0.02;
+            target.velocity.y += ody * 0.02;
+
+            // Delivered!
+            if (target.distanceTo(onion) < 1.0) {
+                onion.pellets = (onion.pellets || 0) + 1;
+                world.removeEntity(target);
+                entity.carryTarget = null;
+            }
+        }
+    }
+}
+
+// =====================================================
+// PIKMIN TYPES
+// =====================================================
+
+// ------------------------------
+// RED PIKMIN
+// ------------------------------
+export const pikmin_red = {
+    id: "pikmin_red",
+    name: "Red Pikmin",
+    type: "entity",
+    sprite: "pikmin_red.png",
+    health: 30,
+    speed: 1.2,
+    size: { x: 0.4, y: 0.6 },
+
+    update(entity, world) {
+        const players = world.getPlayers();
+        const enemies = world.getEntities().filter(e => e.isEnemy);
+
+        // Carrying
+        handleCarrying(entity, world);
+
+        // Thrown
+        if (entity.isThrown) {
+            entity.throwTimer--;
+            for (const enemy of enemies) {
+                if (entity.distanceTo(enemy) < 0.8) {
+                    enemy.damage(6);
+                    entity.isThrown = false;
+                }
+            }
+            if (entity.throwTimer <= 0) entity.isThrown = false;
+            return;
+        }
+
+        // Follow player
+        let nearestPlayer = null;
+        let nearestDist = Infinity;
+        for (const p of players) {
+            const d = entity.distanceTo(p);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearestPlayer = p;
+            }
+        }
+        if (nearestPlayer) entity.moveToward(nearestPlayer, this.speed);
+
+        // Attack
+        for (const enemy of enemies) {
+            if (entity.distanceTo(enemy) < 1.0) enemy.damage(5);
+        }
+    }
+};
+
+// ------------------------------
+// BLUE PIKMIN
+// ------------------------------
+export const pikmin_blue = {
+    id: "pikmin_blue",
+    name: "Blue Pikmin",
+    type: "entity",
+    sprite: "pikmin_blue.png",
+    health: 35,
+    speed: 1.1,
+    waterProof: true,
+    size: { x: 0.4, y: 0.6 },
+
+    update(entity, world) {
+        const players = world.getPlayers();
+        const enemies = world.getEntities().filter(e => e.isEnemy);
+
+        handleCarrying(entity, world);
+
+        if (entity.isThrown) {
+            entity.throwTimer--;
+            for (const enemy of enemies) {
+                if (entity.distanceTo(enemy) < 0.8) {
+                    enemy.damage(5);
+                    entity.isThrown = false;
+                }
+            }
+            if (entity.throwTimer <= 0) entity.isThrown = false;
+            return;
+        }
+
+        let nearestPlayer = null;
+        let nearestDist = Infinity;
+        for (const p of players) {
+            const d = entity.distanceTo(p);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearestPlayer = p;
+            }
+        }
+        if (nearestPlayer) entity.moveToward(nearestPlayer, this.speed);
+
+        if (world.isInWater(entity.position)) entity.speed = 1.4;
+        else entity.speed = this.speed;
+
+        for (const enemy of enemies) {
+            if (entity.distanceTo(enemy) < 1.0) enemy.damage(4);
+        }
+    }
+};
+
+// ------------------------------
+// YELLOW PIKMIN
+// ------------------------------
+export const pikmin_yellow = {
+    id: "pikmin_yellow",
+    name: "Yellow Pikmin",
+    type: "entity",
+    sprite: "pikmin_yellow.png",
+    health: 30,
+    speed: 1.25,
+    electricResistant: true,
+    size: { x: 0.4, y: 0.6 },
+
+    update(entity, world) {
+        const players = world.getPlayers();
+        const enemies = world.getEntities().filter(e => e.isEnemy);
+
+        handleCarrying(entity, world);
+
+        if (entity.isThrown) {
+            entity.throwTimer--;
+            for (const enemy of enemies) {
+                if (entity.distanceTo(enemy) < 0.8) {
+                    enemy.damage(5);
+                    entity.isThrown = false;
+                }
+            }
+            if (entity.throwTimer <= 0) entity.isThrown = false;
+            return;
+        }
+
+        let nearestPlayer = null;
+        let nearestDist = Infinity;
+        for (const p of players) {
+            const d = entity.distanceTo(p);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearestPlayer = p;
+            }
+        }
+        if (nearestPlayer) entity.moveToward(nearestPlayer, this.speed);
+
+        if (world.getTick() % 40 === 0) entity.velocity.y += 0.2;
+
+        for (const enemy of enemies) {
+            if (entity.distanceTo(enemy) < 1.0) enemy.damage(4);
+        }
+    }
+};
+
+// ------------------------------
+// PURPLE PIKMIN
+// ------------------------------
+export const pikmin_purple = {
+    id: "pikmin_purple",
+    name: "Purple Pikmin",
+    type: "entity",
+    sprite: "pikmin_purple.png",
+    health: 60,
+    speed: 0.8,
+    size: { x: 0.6, y: 0.7 },
+
+    update(entity, world) {
+        const players = world.getPlayers();
+        const enemies = world.getEntities().filter(e => e.isEnemy);
+
+        handleCarrying(entity, world);
+
+        if (entity.isThrown) {
+            entity.throwTimer--;
+            entity.velocity.y += 0.05;
+            for (const enemy of enemies) {
+                if (entity.distanceTo(enemy) < 1.0) {
+                    enemy.damage(12);
+                    enemy.velocity.y += 0.5;
+                    entity.isThrown = false;
+                }
+            }
+            if (entity.throwTimer <= 0) entity.isThrown = false;
+            return;
+        }
+
+        let nearestPlayer = null;
+        let nearestDist = Infinity;
+        for (const p of players) {
+            const d = entity.distanceTo(p);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearestPlayer = p;
+            }
+        }
+        if (nearestPlayer) entity.moveToward(nearestPlayer, this.speed);
+
+        for (const enemy of enemies) {
+            if (entity.distanceTo(enemy) < 1.2) enemy.damage(10);
+        }
+    }
+};
+
+// ------------------------------
+// WHITE PIKMIN
+// ------------------------------
+export const pikmin_white = {
+    id: "pikmin_white",
+    name: "White Pikmin",
+    type: "entity",
+    sprite: "pikmin_white.png",
+    health: 25,
+    speed: 1.5,
+    poisonous: true,
+    size: { x: 0.35, y: 0.55 },
+
+    update(entity, world) {
+        const players = world.getPlayers();
+        const enemies = world.getEntities().filter(e => e.isEnemy);
+
+        handleCarrying(entity, world);
+
+        if (entity.isThrown) {
+            entity.throwTimer--;
+            for (const enemy of enemies) {
+                if (entity.distanceTo(enemy) < 0.8) {
+                    enemy.damage(4);
+                    enemy.addStatusEffect?.("poison", 60);
+                    entity.isThrown = false;
+                }
+            }
+            if (entity.throwTimer <= 0) entity.isThrown = false;
+            return;
+        }
+
+        let nearestPlayer = null;
+        let nearestDist = Infinity;
+        for (const p of players) {
+            const d = entity.distanceTo(p);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearestPlayer = p;
+            }
+        }
+        if (nearestPlayer) entity.moveToward(nearestPlayer, this.speed);
+
+        for (const enemy of enemies) {
+            if (entity.distanceTo(enemy) < 1.0) {
+                enemy.damage(3);
+                enemy.addStatusEffect?.("poison", 60);
+            }
+        }
+    }
+};
+
+// ------------------------------
+// ROCK PIKMIN
+// ------------------------------
+export const pikmin_rock = {
+    id: "pikmin_rock",
+    name: "Rock Pikmin",
+    type: "entity",
+    sprite: "pikmin_rock.png",
+    health: 45,
+    speed: 1.0,
+    size: { x: 0.5, y: 0.5 },
+
+    update(entity, world) {
+        const players = world.getPlayers();
+        const enemies = world.getEntities().filter(e => e.isEnemy);
+
+        handleCarrying(entity, world);
+
+        if (entity.isThrown) {
+            entity.throwTimer--;
+            for (const enemy of enemies) {
+                if (entity.distanceTo(enemy) < 0.9) {
+                    let dmg = 6;
+                    if (enemy.armor !== undefined) {
+                        enemy.armor = Math.max(0, enemy.armor - 1);
+                        dmg += 4;
+                    }
+                    enemy.damage(dmg);
+                    entity.isThrown = false;
+                }
+            }
+            if (entity.throwTimer <= 0) entity.isThrown = false;
+            return;
+        }
+
+        let nearestPlayer = null;
+        let nearestDist = Infinity;
+        for (const p of players) {
+            const d = entity.distanceTo(p);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearestPlayer = p;
+            }
+        }
+        if (nearestPlayer) entity.moveToward(nearestPlayer, this.speed);
+
+        for (const enemy of enemies) {
+            if (entity.distanceTo(enemy) < 1.1) {
+                let dmg = 6;
+                if (enemy.armor !== undefined) {
+                    enemy.armor = Math.max(0, enemy.armor - 1);
+                    dmg += 4;
+                }
+                enemy.damage(dmg);
+            }
+        }
+    }
+};
+
+// ------------------------------
+// WINGED PIKMIN
+// ------------------------------
+export const pikmin_winged = {
+    id: "pikmin_winged",
+    name: "Winged Pikmin",
+    type: "entity",
+    sprite: "pikmin_winged.png",
+    health: 30,
+    speed: 1.3,
+    canFly: true,
+    size: { x: 0.4, y: 0.6 },
+
+    update(entity, world) {
+        const players = world.getPlayers();
+        const enemies = world.getEntities().filter(e => e.isEnemy);
+
+        handleCarrying(entity, world);
+
+        if (entity.isThrown) {
+            entity.throwTimer--;
+            entity.velocity.y += 0.02;
+            for (const enemy of enemies) {
+                if (entity.distanceTo(enemy) < 0.9) {
+                    enemy.damage(5);
+                    entity.isThrown = false;
+                }
+            }
+            if (entity.throwTimer <= 0) entity.isThrown = false;
+            return;
+        }
+
+        let nearestPlayer = null;
+        let nearestDist = Infinity;
+        for (const p of players) {
+            const d = entity.distanceTo(p);
+            if (d < nearestDist) {
+                nearestDist = d;
+                nearestPlayer = p;
+            }
+        }
+        if (nearestPlayer) {
+            const targetPos = {
+                x: nearestPlayer.position.x,
+                y: nearestPlayer.position.y + 1.0
+            };
+            entity.moveToward(targetPos, this.speed);
+        }
+
+        for (const enemy of enemies) {
+            if (entity.distanceTo(enemy) < 1.2) enemy.damage(5);
+        }
+
+        entity.velocity.y += 0.02;
+    }
+};
+
+// =====================================================
+// ONION BASE (Grows Pikmin)
+// =====================================================
+export const pikmin_onion = {
+    id: "pikmin_onion",
+    name: "Pikmin Onion",
+    type: "entity",
+    sprite: "pikmin_onion.png",
+    size: { x: 1.2, y: 1.2 },
+    pellets: 0,
+
+    update(entity, world) {
+        // Grow Pikmin every 3 pellets
+        if (entity.pellets >= 3) {
+            entity.pellets -= 3;
+
+            const newPikmin = world.spawnEntity("pikmin_red", {
+                x: entity.position.x + (Math.random() - 0.5),
+                y: entity.position.y - 1
+            });
+
+            newPikmin.velocity.y -= 0.3;
+        }
+    }
+};
+
+// =====================================================
+// BOSS ENEMY
+// =====================================================
+export const pikmin_boss = {
+    id: "pikmin_boss",
+    name: "Bulblax Boss",
+    type: "entity",
+    sprite: "pikmin_boss.png",
+    health: 300,
+    size: { x: 2.0, y: 1.5 },
+    speed: 0.6,
+    isEnemy: true,
+
+    update(entity, world) {
+        const pikmin = world.getEntities().filter(e => e.id.startsWith("pikmin_"));
+
+        // Chase nearest Pikmin
+        let nearest = null;
+        let dist = Infinity;
+        for (const p of pikmin) {
+            const d = entity.distanceTo(p);
+            if (d < dist) {
+                dist = d;
+                nearest = p;
+            }
+        }
+
+        if (nearest) entity.moveToward(nearest, this.speed);
+
+        // Damage Pikmin
+        for (const p of pikmin) {
+            if (entity.distanceTo(p) < 1.4) {
+                p.damage(8);
+            }
+        }
+
+        // Boss death explosion
+        if (entity.health <= 0) {
+            for (let i = 0; i < 5; i++) {
+                world.spawnEntity("pikmin_red", {
+                    x: entity.position.x + (Math.random() - 0.5),
+                    y: entity.position.y - 1
+                });
+            }
+            world.removeEntity(entity);
+        }
+    }
+};
+
+// =====================================================
+// EXPORT EVERYTHING
+// =====================================================
+export default {
+    pikmin_red,
+    pikmin_blue,
+    pikmin_yellow,
+    pikmin_purple,
+    pikmin_white,
+    pikmin_rock,
+    pikmin_winged,
+    pikmin_onion,
+    pikmin_boss,
+    onKeyPress
+};
